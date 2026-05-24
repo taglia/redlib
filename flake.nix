@@ -87,17 +87,17 @@
             pkgs.wget
           ];
           config = {
-            Cmd = [ "${redlib}/bin/redlib" ];
+            Env = [
+              "PATH=${redlib}/bin:${pkgs.wget}/bin:${pkgs.busybox}/bin:${pkgs.busybox}/sbin"
+            ];
+            Cmd = [ "redlib" ];
             ExposedPorts = {
               "8080/tcp" = { };
             };
             Healthcheck = {
               Test = [
-                "CMD"
-                "${pkgs.wget}/bin/wget"
-                "--spider"
-                "-q"
-                "http://localhost:8080/settings"
+                "CMD-SHELL"
+                "wget --spider -q http://localhost:8080/settings || exit 1"
               ];
               Interval = 60000000000;
               Timeout = 3000000000;
