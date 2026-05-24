@@ -24,7 +24,11 @@
 
         inherit (pkgs) lib;
 
-        rustToolchain = pkgs.rust-bin.stable.latest.default.override {
+        cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
+
+        staticToolchain = pkgs.pkgsStatic.stdenv.cc;
+
+        rustToolchain = pkgs.rust-bin.stable."1.88.0".default.override {
           targets = [ "x86_64-unknown-linux-musl" ];
         };
 
@@ -44,13 +48,31 @@
           strictDeps = true;
           doCheck = false;
 
+          nativeBuildInputs = with pkgs; [
+            cmake
+            git
+            perl
+            pkg-config
+            rustPlatform.bindgenHook
+            staticToolchain
+          ];
+
           CARGO_BUILD_TARGET = "x86_64-unknown-linux-musl";
           CARGO_BUILD_RUSTFLAGS = "-C target-feature=+crt-static";
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER = "${staticToolchain}/bin/${staticToolchain.targetPrefix}cc";
+          CC_x86_64_unknown_linux_musl = "${staticToolchain}/bin/${staticToolchain.targetPrefix}cc";
+          CXX_x86_64_unknown_linux_musl = "${staticToolchain}/bin/${staticToolchain.targetPrefix}c++";
         };
       in
       {
         checks = {
           my-crate = redlib;
+        };
+
+        devShells.default = pkgs.mkShell {
+          packages = [
+            rustToolchain
+          ];
         };
 
         packages.default = redlib;
@@ -59,7 +81,17 @@
           tag = "latest";
           created = "now";
           copyToRoot = with pkgs.dockerTools; [ caCertificates fakeNss ];
-          config.Cmd = "${redlib}/bin/redlib";
+          config = {
+            Cmd = [ "${redlib}/bin/redlib" ];
+            Labels = {
+              "org.opencontainers.image.title" = "Redlib";
+              "org.opencontainers.image.description" = "Private front-end for Reddit";
+              "org.opencontainers.image.source" = "https://github.com/taglia/redlib/tree/dockerhub-redlib-0.36.0";
+              "org.opencontainers.image.url" = "https://github.com/redlib-org/redlib";
+              "org.opencontainers.image.version" = cargoToml.package.version;
+              "org.opencontainers.image.licenses" = "AGPL-3.0-only";
+            };
+          };
         };
       });
 }
