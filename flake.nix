@@ -86,7 +86,7 @@
             Labels = {
               "org.opencontainers.image.title" = "Redlib";
               "org.opencontainers.image.description" = "Private front-end for Reddit";
-              "org.opencontainers.image.source" = "https://github.com/taglia/redlib/tree/dockerhub-redlib-0.36.0";
+              "org.opencontainers.image.source" = "https://github.com/taglia/redlib/tree/redlib-0.36.0-dockerhub-source";
               "org.opencontainers.image.url" = "https://github.com/redlib-org/redlib";
               "org.opencontainers.image.version" = cargoToml.package.version;
               "org.opencontainers.image.licenses" = "AGPL-3.0-only";
