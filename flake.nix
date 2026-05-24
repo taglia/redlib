@@ -80,9 +80,27 @@
           name = "quay.io/redlib/redlib";
           tag = "latest";
           created = "now";
-          copyToRoot = with pkgs.dockerTools; [ caCertificates fakeNss ];
+          copyToRoot = with pkgs.dockerTools; [
+            caCertificates
+            fakeNss
+            pkgs.wget
+          ];
           config = {
             Cmd = [ "${redlib}/bin/redlib" ];
+            ExposedPorts = {
+              "8080/tcp" = { };
+            };
+            Healthcheck = {
+              Test = [
+                "CMD"
+                "${pkgs.wget}/bin/wget"
+                "--spider"
+                "-q"
+                "http://localhost:8080/settings"
+              ];
+              Interval = 60000000000;
+              Timeout = 3000000000;
+            };
             Labels = {
               "org.opencontainers.image.title" = "Redlib";
               "org.opencontainers.image.description" = "Private front-end for Reddit";
