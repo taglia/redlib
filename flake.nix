@@ -83,6 +83,7 @@
           copyToRoot = with pkgs.dockerTools; [
             caCertificates
             fakeNss
+            pkgs.busybox
             pkgs.wget
           ];
           config = {
