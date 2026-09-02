@@ -1,3 +1,15 @@
+> [!NOTE]
+> **About this fork**
+>
+> I created this fork for my personal use: I wanted a Docker image built from the
+> current upstream `main` branch, since the official pre-built images are out of date.
+> The image is published on Docker Hub as
+> [`tagliasteel/redlib`](https://hub.docker.com/r/tagliasteel/redlib).
+>
+> I update it on a best-effort basis — typically when my own container stops working.
+> No stability guarantees. For everything else, see the upstream project:
+> [redlib-org/redlib](https://github.com/redlib-org/redlib).
+
 # Redlib
 
 > An alternative private front-end to Reddit, with its origins in [Libreddit](https://github.com/libreddit/libreddit).
