@@ -26,9 +26,12 @@
 
         cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
 
-        staticToolchain = pkgs.pkgsStatic.stdenv.cc;
+        # Use the native PIE-capable toolchain. pkgsStatic's libstdc++.a is not
+        # position independent and cannot link Rust's static-PIE musl binary.
+        # dockerTools includes the native runtime closure in the image.
+        nativeToolchain = pkgs.stdenv.cc;
 
-        rustTarget = if system == "aarch64-linux" then "aarch64-unknown-linux-musl" else "x86_64-unknown-linux-musl";
+        rustTarget = pkgs.stdenv.hostPlatform.rust.rustcTarget;
         rustToolchain = pkgs.rust-bin.stable."1.99.1".default.override {
           targets = [ rustTarget ];
           extensions = [ "rustfmt" "clippy" ];
@@ -56,14 +59,13 @@
             perl
             pkg-config
             rustPlatform.bindgenHook
-            staticToolchain
+            nativeToolchain
           ];
 
           CARGO_BUILD_TARGET = rustTarget;
-          CARGO_BUILD_RUSTFLAGS = "-C target-feature=+crt-static";
-          "CARGO_TARGET_${lib.toUpper (builtins.replaceStrings [ "-" ] [ "_" ] rustTarget)}_LINKER" = "${staticToolchain}/bin/${staticToolchain.targetPrefix}cc";
-          "CC_${builtins.replaceStrings [ "-" ] [ "_" ] rustTarget}" = "${staticToolchain}/bin/${staticToolchain.targetPrefix}cc";
-          "CXX_${builtins.replaceStrings [ "-" ] [ "_" ] rustTarget}" = "${staticToolchain}/bin/${staticToolchain.targetPrefix}c++";
+          "CARGO_TARGET_${lib.toUpper (builtins.replaceStrings [ "-" ] [ "_" ] rustTarget)}_LINKER" = "${nativeToolchain}/bin/${nativeToolchain.targetPrefix}cc";
+          "CC_${builtins.replaceStrings [ "-" ] [ "_" ] rustTarget}" = "${nativeToolchain}/bin/${nativeToolchain.targetPrefix}cc";
+          "CXX_${builtins.replaceStrings [ "-" ] [ "_" ] rustTarget}" = "${nativeToolchain}/bin/${nativeToolchain.targetPrefix}c++";
         };
       in
       {
@@ -73,7 +75,7 @@
 
         devShells.default = pkgs.mkShell {
           packages = with pkgs; [
-            rustToolchain cargo-audit cargo-edit actionlint skopeo
+            rustToolchain cargo-audit cargo-edit cargo-nextest actionlint skopeo
             cmake perl pkg-config clang git
           ];
           LIBCLANG_PATH = "${pkgs.libclang.lib}/lib";
@@ -87,13 +89,11 @@
           copyToRoot = with pkgs.dockerTools; [
             caCertificates
             fakeNss
-            pkgs.busybox
-            pkgs.wget
           ];
           config = {
             User = "10001:10001";
             Env = [
-              "PATH=${redlib}/bin:${pkgs.wget}/bin:${pkgs.busybox}/bin:${pkgs.busybox}/sbin"
+              "PATH=${redlib}/bin"
             ];
             Cmd = [ "redlib" ];
             ExposedPorts = {
@@ -101,8 +101,8 @@
             };
             Healthcheck = {
               Test = [
-                "CMD-SHELL"
-                "wget --spider -q http://localhost:8080/settings || exit 1"
+                "CMD"
+                "${redlib}/bin/redlib-healthcheck"
               ];
               Interval = 60000000000;
               Timeout = 3000000000;

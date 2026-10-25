@@ -344,8 +344,13 @@ cargo audit
 
 `Dockerfile` is the canonical Docker Hub build. `Dockerfile.alpine` and
 `Dockerfile.ubuntu` remain optional variants; the publishing pipeline validates
-only the canonical image. Nix supports native `x86_64-linux` and `aarch64-linux`
-package/image builds (`nix build .#default` / `nix build .#docker`).
+only the canonical image. It uses a distroless runtime (no shell or wget) and
+`/usr/local/bin/redlib-healthcheck`; update any custom wget-based healthchecks.
+Nix supports native `x86_64-linux` and `aarch64-linux` package/image builds
+(`nix build .#default` / `nix build .#docker`), including the native runtime closure.
+Use `cargo nextest run --locked --test-threads 1` for live Reddit integration tests
+with per-test isolation. Reddit may still block comment requests from some IPs;
+see the security review's runtime limitations.
 
 ## Replit/Heroku
 

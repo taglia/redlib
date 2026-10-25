@@ -33,7 +33,16 @@ changes paths, not URL authorities.
   RSS body HTML still originates at Reddit; consumers must sanitize feed HTML.
 - Replace the download-of-`latest` binary Dockerfile with a locked source build.
   Pin multiarch Rust/runtime base indexes and CI actions; use a numeric nonroot
-  user and include working CA certificates and healthcheck tools.
+  user and include CA certificates plus a bounded, shell-free Rust healthcheck.
+- The first Debian-slim runtime scan blocked publication with 45 HIGH package
+  findings (including wget, util-linux, ncurses, and systemd-related packages).
+  Replace that general-purpose runtime with digest-pinned distroless `cc-debian13`.
+  Do not suppress these findings or remove package metadata to hide them.
+  The replacement base's local HIGH/CRITICAL scan is clean.
+- Nix's updated static C++ runtime cannot link Rust's musl static-PIE executable.
+  Use a native, dynamically linked PIE build and include its runtime closure in
+  the Nix image, instead of disabling PIE hardening. Remove shell/wget dependencies
+  from that image and use the same Rust healthcheck.
 - Disable upstream Quay/crates.io/release jobs in this fork. Docker Hub publishing
   requires successful Rust checks and both architectures' smoke tests and scans.
   Publish the exact scanned image artifacts, not a second potentially different
@@ -45,12 +54,20 @@ changes paths, not URL authorities.
 ## Local validation results
 
 - Formatting, Clippy (`--all-targets -D warnings`), and actionlint pass.
-- Deterministic suite: 46 passed; 20 live-API tests filtered out.
+- Deterministic library suite: 46 passed; 20 live-API tests filtered out.
+  The shell-free healthcheck has an additional isolated loopback unit test.
+- Live nextest run before adding the helper: 55 passed, 1 upstream-disabled test
+  skipped. A single-process cargo test run exposed the upstream rate-limit test's
+  shared-state assumption; that test passes in isolation and under nextest.
 - `cargo audit`: no known vulnerabilities; the documented bincode maintenance warning remains.
 - hls.js 1.7.3: OSV query returned no advisories.
 - Native debug build served `/settings`, `/info.yaml`, and a populated `/r/rust`
   page successfully (HTTP 200). This does not guarantee Reddit availability from
   GitHub runners or other deployment networks.
+- Additional comment-page probes returned Reddit HTTP 403/non-JSON responses from
+  this machine, for both ordinary and percent-encoded routes, on both OAuth and
+  www hosts. Feed browsing worked. Updating this image does not guarantee that
+  Reddit will allow comment access from a deployment's IP.
 - Nix flake evaluation passes for both supported architectures. Full Nix build
   validation is separate from the canonical Docker publishing pipeline.
 
@@ -63,8 +80,9 @@ No blanket vulnerability exclusions are configured.
 
 `scripts/test-offline.sh` explicitly lists upstream tests requiring live Reddit
 OAuth/API access. They are excluded from the deterministic CI gate; all other
-unit tests run. Use `cargo test --locked -- --include-ignored` for the complete
-live suite. A green offline suite is not proof that Reddit will accept requests
+unit tests run. Use `cargo nextest run --locked --test-threads 1` for the live
+suite with per-test process isolation. The upstream-disabled GenericWeb backend
+case remains ignored; use `--run-ignored all` only when explicitly diagnosing it. A green offline suite is not proof that Reddit will accept requests
 from a particular deployment IP.
 
 The Docker Hub workflow builds natively on x86_64 and aarch64 GitHub runners,

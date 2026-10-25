@@ -92,7 +92,10 @@ jobs:
           trap 'docker logs redlib-smoke; docker rm -f redlib-smoke' EXIT
           # Upstream OAuth bootstrap can take up to ~100 seconds.
           for _attempt in {1..90}; do
-            if curl --fail --silent --show-error --max-time 3 http://127.0.0.1:18080/settings -o /dev/null; then exit 0; fi
+            if curl --fail --silent --show-error --max-time 3 http://127.0.0.1:18080/settings -o /dev/null; then
+              docker exec redlib-smoke /usr/local/bin/redlib-healthcheck
+              exit 0
+            fi
             sleep 2
           done
           exit 1

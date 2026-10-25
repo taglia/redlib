@@ -17,7 +17,7 @@ services:
     networks:
       - redlib
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "--tries=1", "http://localhost:8080/settings"]
+      test: ["CMD", "/usr/local/bin/redlib-healthcheck"]
       interval: 5m
       timeout: 3s
 
