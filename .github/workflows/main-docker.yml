@@ -200,3 +200,11 @@ jobs:
           docker buildx imagetools inspect --raw "${IMAGE}:sha-${REVISION}" | \
             jq -e '[.manifests[].platform | .os + "/" + .architecture] | sort == ["linux/amd64", "linux/arm64"]'
           docker buildx imagetools create -t "${IMAGE}:latest" "${IMAGE}:sha-${REVISION}"
+
+  description:
+    needs: manifest
+    if: github.repository == 'taglia/redlib' && github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/dockerhub-description.yml
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}

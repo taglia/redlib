@@ -11,6 +11,12 @@
 > native image smoke tests, and vulnerability scans before publishing `latest` and
 > `sha-<full commit>` tags. Prefer a digest or SHA tag for reproducible deployments.
 >
+> Docker Hub's version-free description is maintained in [DOCKERHUB.md](DOCKERHUB.md).
+> The `Docker Hub description` workflow synchronizes it after publication, on changes
+> to that file or its workflow on `main`, and via manual dispatch. It uses the existing
+> `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` secrets; the token requires Read/Write/Delete
+> access for Docker Hub metadata updates. Never put the token in repository files.
+>
 > See [the security review and validation limitations](SECURITY-REVIEW.md).
 > Updates remain best-effort, without stability guarantees. For everything else, see the upstream project:
 > [redlib-org/redlib](https://github.com/redlib-org/redlib).
