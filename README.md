@@ -6,8 +6,13 @@
 > The image is published on Docker Hub as
 > [`tagliasteel/redlib`](https://hub.docker.com/r/tagliasteel/redlib).
 >
-> I update it on a best-effort basis — typically when my own container stops working.
-> No stability guarantees. For everything else, see the upstream project:
+> Images are built from this fork's reviewed source for **linux/amd64** and
+> **linux/arm64**. The `Docker Hub` GitHub Actions workflow runs locked Rust checks,
+> native image smoke tests, and vulnerability scans before publishing `latest` and
+> `sha-<full commit>` tags. Prefer a digest or SHA tag for reproducible deployments.
+>
+> See [the security review and validation limitations](SECURITY-REVIEW.md).
+> Updates remain best-effort, without stability guarantees. For everything else, see the upstream project:
 > [redlib-org/redlib](https://github.com/redlib-org/redlib).
 
 # Redlib
@@ -210,15 +215,15 @@ docker logs -f redlib
 Deploy Redlib:
 
 ```bash
-docker pull quay.io/redlib/redlib:latest
-docker run -d --name redlib -p 8080:8080 quay.io/redlib/redlib:latest
+docker pull tagliasteel/redlib:latest
+docker run -d --name redlib -p 8080:8080 tagliasteel/redlib:latest
 ```
 
 Deploy using a different port on the host (in this case, port 80):
 
 ```bash
-docker pull quay.io/redlib/redlib:latest
-docker run -d --name redlib -p 80:8080 quay.io/redlib/redlib:latest
+docker pull tagliasteel/redlib:latest
+docker run -d --name redlib -p 80:8080 tagliasteel/redlib:latest
 ```
 
 If you're using a reverse proxy in front of Redlib, prefix the port numbers with `127.0.0.1` so that Redlib only listens on the host port **locally**. For example, if the host port for Redlib is `8080`, specify `127.0.0.1:8080:8080`.
@@ -267,7 +272,7 @@ If you're on Linux, you can grab a binary from [the newest release](https://gith
 Download the binary using [Wget](https://www.gnu.org/software/wget/):
 
 ```bash
-wget https://github.com/redlib-org/redlib/releases/download/v0.31.0/redlib
+wget https://github.com/redlib-org/redlib/releases/download/v0.40.0/redlib
 ```
 
 Make the binary executable and change its ownership to `root`:
@@ -321,9 +326,26 @@ Before=nginx.service
 To deploy Redlib with changes not yet included in the latest release, you can build the application from source.
 
 ```bash
-git clone https://github.com/redlib-org/redlib && cd redlib
-cargo run
+git clone https://github.com/taglia/redlib && cd redlib
+# The checked-in .envrc activates the pinned Nix development shell.
+direnv allow
+cargo run --locked
 ```
+
+Without Nix, install Rust 1.99.1 and the native prerequisites (`cmake`, `perl`,
+`pkg-config`, a C/C++ compiler, and `libclang-dev`). For local validation:
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --locked --all-targets -- -D warnings
+bash scripts/test-offline.sh
+cargo audit
+```
+
+`Dockerfile` is the canonical Docker Hub build. `Dockerfile.alpine` and
+`Dockerfile.ubuntu` remain optional variants; the publishing pipeline validates
+only the canonical image. Nix supports native `x86_64-linux` and `aarch64-linux`
+package/image builds (`nix build .#default` / `nix build .#docker`).
 
 ## Replit/Heroku
 
@@ -400,7 +422,7 @@ REDLIB_DEFAULT_USE_HLS = "on"
 > If using the Docker CLI, add ` --env-file .env` to the command that runs Redlib. For example:
 >
 > ```bash
-> docker run -d --name redlib -p 8080:8080 --env-file .env quay.io/redlib/redlib:latest
+> docker run -d --name redlib -p 8080:8080 --env-file .env tagliasteel/redlib:latest
 > ```
 >
 > If using Docker Compose, no changes are needed as the `.env` file is already referenced in `compose.yaml` via the `env_file: .env` line.

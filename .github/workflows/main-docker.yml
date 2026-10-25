@@ -1,109 +1,199 @@
-name: Container build
+name: Docker Hub
 
 on:
-  workflow_run:
-    workflows: ["Release Build"]
-    types:
-      - completed
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the checked image to Docker Hub
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
-  REGISTRY_IMAGE: quay.io/redlib/redlib
+  IMAGE: tagliasteel/redlib
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  rust:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: 1.99.1
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: Native build prerequisites
+        run: sudo apt-get update && sudo apt-get install -y cmake perl pkg-config libclang-dev git
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      # The helper must run only deterministic tests; live Reddit tests are not a CI gate.
+      - run: bash scripts/test-offline.sh
+      - name: Audit locked dependencies
+        run: |
+          cargo install cargo-audit --version 0.22.2 --locked
+          cargo audit
+
+  verify-image:
+    needs: rust
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { platform: linux/amd64, target: x86_64-unknown-linux-musl }
-          - { platform: linux/arm64, target: aarch64-unknown-linux-musl }
-          - { platform: linux/arm/v7, target: armv7-unknown-linux-musleabihf }
+          - runner: ubuntu-24.04
+            arch: amd64
+            platform: linux/amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+            platform: linux/arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Docker meta
-        id: meta
-        uses: docker/metadata-action@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          images: ${{ env.REGISTRY_IMAGE }}
-          tags: |
-            type=sha
-            type=raw,value=latest,enable={{is_default_branch}}
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-      - name: Login to Quay.io Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: quay.io
-          username: ${{ secrets.QUAY_USERNAME }}
-          password: ${{ secrets.QUAY_ROBOT_TOKEN }}
-      - name: Build and push
-        id: build
-        uses: docker/build-push-action@v5
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build and load native runtime image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
-          platforms: ${{ matrix.platform }}
-          labels: ${{ steps.meta.outputs.labels }}
-          outputs: type=image,name=${{ env.REGISTRY_IMAGE }},push-by-digest=true,name-canonical=true,push=true
           file: Dockerfile
-          build-args: TARGET=${{ matrix.target }}
-      - name: Export digest
+          target: runtime
+          platforms: ${{ matrix.platform }}
+          load: true
+          push: false
+          tags: redlib-ci:${{ matrix.arch }}
+          build-args: SOURCE_COMMIT=${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
+      - name: Verify nonroot runtime and /settings
+        env:
+          ARCH: ${{ matrix.arch }}
+          REVISION: ${{ github.sha }}
         run: |
-          mkdir -p /tmp/digests
-          digest="${{ steps.build.outputs.digest }}"
-          touch "/tmp/digests/${digest#sha256:}"
-      - name: Upload digest
-        uses: actions/upload-artifact@v4
+          set -euo pipefail
+          image="redlib-ci:${ARCH}"
+          test "$(docker image inspect --format '{{.Architecture}}' "$image")" = "$ARCH"
+          test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image")" = "$REVISION"
+          user="$(docker image inspect --format '{{.Config.User}}' "$image")"
+          case "$user" in ''|root|0|0:*) echo 'Runtime image must specify a nonroot user' >&2; exit 1;; esac
+          docker run -d --name redlib-smoke --read-only --cap-drop ALL --security-opt no-new-privileges -p 127.0.0.1:18080:8080 "$image"
+          trap 'docker logs redlib-smoke; docker rm -f redlib-smoke' EXIT
+          # Upstream OAuth bootstrap can take up to ~100 seconds.
+          for _attempt in {1..90}; do
+            if curl --fail --silent --show-error --max-time 3 http://127.0.0.1:18080/settings -o /dev/null; then exit 0; fi
+            sleep 2
+          done
+          exit 1
+      - name: Scan runtime image (HIGH and CRITICAL)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          name: digests-${{ matrix.target }}
-          path: /tmp/digests/*
+          version: v0.76.1
+          image-ref: redlib-ci:${{ matrix.arch }}
+          scanners: vuln
+          timeout: 10m
+          format: table
+          exit-code: '1'
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+      - name: Save the verified image (never rebuild after scanning)
+        run: docker save redlib-ci:${{ matrix.arch }} | gzip > image.tar.gz
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: image-${{ matrix.arch }}
+          path: image.tar.gz
+          compression-level: 0
+          retention-days: 1
+
+  publish:
+    if: github.repository == 'taglia/redlib' && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main'))
+    needs: verify-image
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+            platform: linux/amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+            platform: linux/arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: image-${{ matrix.arch }}
+      - name: Load the verified image
+        run: docker load --input image.tar.gz
+      - name: Login after all verification gates pass
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Push the verified image and record digest
+        env:
+          ARCH: ${{ matrix.arch }}
+          REVISION: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          tag="${IMAGE}:sha-${REVISION}-${ARCH}"
+          docker tag "redlib-ci:${ARCH}" "$tag"
+          docker push "$tag"
+          digest="$(docker image inspect "$tag" --format '{{index .RepoDigests 0}}')"
+          digest="${digest##*@}"
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          mkdir -p digests
+          touch "digests/${digest#sha256:}"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: digest-${{ matrix.arch }}
+          path: digests/*
           if-no-files-found: error
           retention-days: 1
-  merge:
-    runs-on: ubuntu-latest
-    needs:
-      - build
+
+  manifest:
+    needs: publish
+    if: github.repository == 'taglia/redlib'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
-      - name: Download digests
-        uses: actions/download-artifact@v4.1.7
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          path: /tmp/digests
-          pattern: digests-*
+          path: digests
+          pattern: digest-*
           merge-multiple: true
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-      - name: Docker meta
-        id: meta
-        uses: docker/metadata-action@v5
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
-          images: ${{ env.REGISTRY_IMAGE }}
-          tags: |
-            type=sha
-            type=raw,value=latest,enable={{is_default_branch}}
-      - name: Login to Quay.io Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: quay.io
-          username: ${{ secrets.QUAY_USERNAME }}
-          password: ${{ secrets.QUAY_ROBOT_TOKEN }}
-      - name: Create manifest list and push
-        working-directory: /tmp/digests
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Publish full-revision and latest multi-arch manifests
+        env:
+          REVISION: ${{ github.sha }}
         run: |
-          docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf '${{ env.REGISTRY_IMAGE }}@sha256:%s ' *)
-
-      # - name: Push README to Quay.io
-      #   uses: christian-korneck/update-container-description-action@v1
-      #   env:
-      #     DOCKER_APIKEY: ${{ secrets.APIKEY__QUAY_IO }}
-      #   with:
-      #     destination_container_repo: quay.io/redlib/redlib
-      #     provider: quay
-      #     readme_file: 'README.md'
-
-      - name: Inspect image
-        run: |
-          docker buildx imagetools inspect ${{ env.REGISTRY_IMAGE }}:${{ steps.meta.outputs.version }}
+          set -euo pipefail
+          mapfile -t digests < <(printf '%s\n' digests/*)
+          [[ ${#digests[@]} -eq 2 ]]
+          refs=()
+          for path in "${digests[@]}"; do
+            hash="${path##*/}"
+            [[ "$hash" =~ ^[0-9a-f]{64}$ ]]
+            refs+=("${IMAGE}@sha256:${hash}")
+          done
+          docker buildx imagetools create -t "${IMAGE}:sha-${REVISION}" "${refs[@]}"
+          docker buildx imagetools inspect "${IMAGE}:sha-${REVISION}"
+          docker buildx imagetools inspect --raw "${IMAGE}:sha-${REVISION}" | \
+            jq -e '[.manifests[].platform | .os + "/" + .architecture] | sort == ["linux/amd64", "linux/arm64"]'
+          docker buildx imagetools create -t "${IMAGE}:latest" "${IMAGE}:sha-${REVISION}"

@@ -5,13 +5,13 @@ use std::collections::HashMap;
 // CRATES
 use crate::server::ResponseExt;
 use crate::subreddit::join_until_size_limit;
-use crate::utils::{deflate_decompress, redirect, template, Preferences};
+use crate::utils::{deflate_decompress, redirect, template, Preferences, MAX_ENCODED_PREFS_BYTES};
 use askama::Template;
+use bincode::Options;
 use cookie::Cookie;
 use futures_lite::StreamExt;
-use hyper::{Body, Request, Response};
+use hyper::{body::HttpBody, Body, Request, Response};
 use time::{Duration, OffsetDateTime};
-use tokio::time::timeout;
 use url::form_urlencoded;
 
 // STRUCTS
@@ -192,7 +192,7 @@ fn set_cookies_method(req: Request<Body>, remove_cookies: bool) -> Response<Body
 			// Increment subscriptions cookie number
 			subscriptions_number_to_delete_from += 1;
 		}
-	} else {
+	} else if remove_cookies {
 		// Remove unnumbered subscriptions cookie
 		response.remove_cookie("subscriptions".to_string());
 
@@ -243,7 +243,7 @@ fn set_cookies_method(req: Request<Body>, remove_cookies: bool) -> Response<Body
 			// Increment filters cookie number
 			filters_number_to_delete_from += 1;
 		}
-	} else {
+	} else if remove_cookies {
 		// Remove unnumbered filters cookie
 		response.remove_cookie("filters".to_string());
 
@@ -273,33 +273,83 @@ pub async fn update(req: Request<Body>) -> Result<Response<Body>, String> {
 }
 
 pub async fn encoded_restore(req: Request<Body>) -> Result<Response<Body>, String> {
-	let body = hyper::body::to_bytes(req.into_body())
-		.await
-		.map_err(|e| format!("Failed to get bytes from request body: {e}"))?;
-
-	if body.len() > 1024 * 1024 {
-		return Err("Request body too large".to_string());
+	let mut stream = req.into_body();
+	let mut body = Vec::new();
+	while let Some(chunk) = stream.data().await {
+		let chunk = chunk.map_err(|e| format!("Failed to read request body: {e}"))?;
+		if chunk.len() > MAX_ENCODED_PREFS_BYTES - body.len() {
+			return Err("Request body too large".to_string());
+		}
+		body.extend_from_slice(&chunk);
 	}
 
-	let encoded_prefs = form_urlencoded::parse(&body)
-		.find(|(key, _)| key == "encoded_prefs")
-		.map(|(_, value)| value)
-		.ok_or_else(|| "encoded_prefs parameter not found in request body".to_string())?;
-
-	let bytes = base2048::decode(&encoded_prefs).ok_or_else(|| "Failed to decode base2048 encoded preferences".to_string())?;
-
-	let out = timeout(std::time::Duration::from_secs(1), async { deflate_decompress(bytes) })
-		.await
-		.map_err(|e| format!("Failed to decompress bytes: {e}"))??;
-
-	let mut prefs: Preferences = timeout(std::time::Duration::from_secs(1), async { bincode::deserialize(&out) })
-		.await
-		.map_err(|e| format!("Failed to deserialize preferences: {e}"))?
-		.map_err(|e| format!("Failed to deserialize bytes into Preferences struct: {e}"))?;
+	let mut prefs = decode_preferences(&body)?;
 
 	prefs.available_themes = vec![];
 
 	let url = format!("/settings/restore/?{}", prefs.to_urlencoded()?);
 
 	Ok(redirect(&url))
+}
+
+fn decode_preferences(body: &[u8]) -> Result<Preferences, String> {
+	let encoded_prefs = form_urlencoded::parse(body)
+		.find(|(key, _)| key == "encoded_prefs")
+		.map(|(_, value)| value)
+		.ok_or_else(|| "encoded_prefs parameter not found in request body".to_string())?;
+	let bytes = base2048::decode(&encoded_prefs).ok_or_else(|| "Failed to decode base2048 encoded preferences".to_string())?;
+	let out = deflate_decompress(bytes)?;
+	// bincode::serialize uses fixed-width integers; deserialize also accepts trailing bytes.
+	bincode::DefaultOptions::new()
+		.with_fixint_encoding()
+		.allow_trailing_bytes()
+		.with_limit(MAX_ENCODED_PREFS_BYTES as u64)
+		.deserialize(&out)
+		.map_err(|e| format!("Failed to deserialize bytes into Preferences struct: {e}"))
+}
+
+#[cfg(test)]
+mod encoded_restore_tests {
+	use super::*;
+
+	#[test]
+	fn settings_template_renders_macros_and_escapes_feed_names() {
+		let prefs = Preferences {
+			subscriptions: vec!["rust".into(), "u_example".into(), "<script>".into()],
+			filters: vec!["news".into()],
+			..Preferences::default()
+		};
+		let html = SettingsTemplate { prefs, url: "/settings".into() }.render().unwrap();
+		assert!(html.contains("<form"));
+		assert!(html.contains("r/rust"));
+		assert!(html.contains("u/example"));
+		assert!(html.contains("r/news"));
+		assert!(html.contains("&#60;script&#62;"));
+		assert!(!html.contains("<script>"));
+	}
+
+	#[test]
+	fn roundtrip_and_malformed_payload() {
+		let prefs = Preferences::default();
+		let encoded = prefs.to_bincode_str().unwrap();
+		let body = form_urlencoded::Serializer::new(String::new()).append_pair("encoded_prefs", &encoded).finish();
+		assert_eq!(decode_preferences(body.as_bytes()).unwrap(), prefs);
+		assert!(decode_preferences(b"encoded_prefs=not-valid").is_err());
+		assert!(decode_preferences(b"unrelated=value").is_err());
+	}
+
+	#[test]
+	fn compressed_bomb_is_rejected() {
+		let compressed = crate::utils::deflate_compress(vec![0; MAX_ENCODED_PREFS_BYTES + 1]).unwrap();
+		let encoded = base2048::encode(&compressed);
+		let body = form_urlencoded::Serializer::new(String::new()).append_pair("encoded_prefs", &encoded).finish();
+		assert!(decode_preferences(body.as_bytes()).unwrap_err().contains("too large"));
+	}
+
+	#[tokio::test]
+	async fn oversized_streaming_body_is_rejected() {
+		let chunks = futures_lite::stream::iter(vec![Ok::<_, std::io::Error>(vec![b'a'; MAX_ENCODED_PREFS_BYTES]), Ok(vec![b'b'])]);
+		let req = Request::new(Body::wrap_stream(chunks));
+		assert_eq!(encoded_restore(req).await.unwrap_err(), "Request body too large");
+	}
 }

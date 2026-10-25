@@ -1,3 +1,9 @@
 target
+.git
 .github
-Dockerfile*
+.direnv
+.review
+.env
+.env.*
+result
+result-*

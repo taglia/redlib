@@ -15,7 +15,6 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 use serde_json_path::{JsonPath, JsonPathExt};
 use std::collections::{HashMap, HashSet};
-use std::env;
 use std::io::{Read, Write};
 use std::str::FromStr;
 use std::string::ToString;
@@ -749,10 +748,18 @@ pub fn deflate_compress(i: Vec<u8>) -> Result<Vec<u8>, String> {
 	e.finish().into_result().map_err(|e| e.to_string())
 }
 
+pub const MAX_ENCODED_PREFS_BYTES: usize = 1024 * 1024;
+
 pub fn deflate_decompress(i: Vec<u8>) -> Result<Vec<u8>, String> {
-	let mut decoder = Decoder::new(&i[..]);
+	let decoder = Decoder::new(&i[..]);
 	let mut out = Vec::new();
-	decoder.read_to_end(&mut out).map_err(|e| format!("Failed to read from gzip decoder: {e}"))?;
+	decoder
+		.take(MAX_ENCODED_PREFS_BYTES as u64 + 1)
+		.read_to_end(&mut out)
+		.map_err(|e| format!("Failed to read from deflate decoder: {e}"))?;
+	if out.len() > MAX_ENCODED_PREFS_BYTES {
+		return Err("Decompressed preferences too large".to_string());
+	}
 	Ok(out)
 }
 
@@ -1086,7 +1093,7 @@ pub fn render_bullet_lists(input_text: &str) -> String {
 // These are links we want to replace in-body
 static REDDIT_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"href="(https|http|)://(www\.|old\.|np\.|amp\.|new\.|)(reddit\.com|redd\.it)/"#).unwrap());
 static REDDIT_PREVIEW_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"https?://(external-preview|preview|i)\.redd\.it(.*)").unwrap());
-static REDDIT_EMOJI_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"https?://(www|).redditstatic\.com/(.*)").unwrap());
+static REDDIT_EMOJI_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"https?://(?:www\.)?redditstatic\.com/[^\s"'<>]*"#).unwrap());
 static REDLIB_PREVIEW_LINK_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"/(img|preview/)(pre|external-pre)?/(.*?)>"#).unwrap());
 static REDLIB_PREVIEW_TEXT_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r">(.*?)</a>").unwrap());
 
@@ -1096,15 +1103,9 @@ pub fn rewrite_urls(input_text: &str) -> String {
 		// Rewrite Reddit links to Redlib
 		REDDIT_REGEX.replace_all(input_text, r#"href="/"#).to_string();
 
-	loop {
-		if REDDIT_EMOJI_REGEX.find(&text1).is_none() {
-			break;
-		} else {
-			text1 = REDDIT_EMOJI_REGEX
-				.replace_all(&text1, format_url(REDDIT_EMOJI_REGEX.find(&text1).map(|x| x.as_str()).unwrap_or_default()))
-				.to_string()
-		}
-	}
+	text1 = REDDIT_EMOJI_REGEX
+		.replace_all(&text1, |captures: &regex::Captures<'_>| format_url(&captures[0]))
+		.to_string();
 
 	// Remove (html-encoded) "\" from URLs.
 	text1 = text1.replace("%5C", "").replace("\\_", "_");
@@ -1553,6 +1554,14 @@ mod tests {
 	fn test_rewriting_emoji() {
 		let input = r#"<div class="md"><p>How can you have such hard feelings towards a license? <img src="https://www.redditstatic.com/marketplace-assets/v1/core/emotes/snoomoji_emotes/free_emotes_pack/shrug.gif" width="20" height="20" style="vertical-align:middle"> Let people use what license they want, and BSD is one of the least restrictive ones AFAIK.</p>"#;
 		let output = r#"<div class="md"><p>How can you have such hard feelings towards a license? <img src="/static/marketplace-assets/v1/core/emotes/snoomoji_emotes/free_emotes_pack/shrug.gif" width="20" height="20" style="vertical-align:middle"> Let people use what license they want, and BSD is one of the least restrictive ones AFAIK.</p>"#;
+		assert_eq!(rewrite_urls(input), output);
+	}
+
+	#[test]
+	fn test_rewriting_multiple_static_urls_without_matching_other_hosts() {
+		let input = "<p>a <a href=\"https://www.redditstatic.com/one.png\">one</a> tail-A</p>\n<p>b <a href=\"https://www.redditstatic.com/two.png\">two</a> tail-B</p>\n<p>typo link https://xredditstatic.com/foo here</p>";
+		let output =
+			"<p>a <a href=\"/static/one.png\">one</a> tail-A</p>\n<p>b <a href=\"/static/two.png\">two</a> tail-B</p>\n<p>typo link https://xredditstatic.com/foo here</p>";
 		assert_eq!(rewrite_urls(input), output);
 	}
 

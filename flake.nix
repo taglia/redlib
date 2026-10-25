@@ -15,7 +15,7 @@
   };
 
   outputs = { nixpkgs, crane, flake-utils, rust-overlay, ... }:
-    flake-utils.lib.eachSystem [ "x86_64-linux" ] (system:
+    flake-utils.lib.eachSystem [ "x86_64-linux" "aarch64-linux" ] (system:
       let
         pkgs = import nixpkgs {
           inherit system;
@@ -28,8 +28,10 @@
 
         staticToolchain = pkgs.pkgsStatic.stdenv.cc;
 
-        rustToolchain = pkgs.rust-bin.stable."1.88.0".default.override {
-          targets = [ "x86_64-unknown-linux-musl" ];
+        rustTarget = if system == "aarch64-linux" then "aarch64-unknown-linux-musl" else "x86_64-unknown-linux-musl";
+        rustToolchain = pkgs.rust-bin.stable."1.99.1".default.override {
+          targets = [ rustTarget ];
+          extensions = [ "rustfmt" "clippy" ];
         };
 
         craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
@@ -57,11 +59,11 @@
             staticToolchain
           ];
 
-          CARGO_BUILD_TARGET = "x86_64-unknown-linux-musl";
+          CARGO_BUILD_TARGET = rustTarget;
           CARGO_BUILD_RUSTFLAGS = "-C target-feature=+crt-static";
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER = "${staticToolchain}/bin/${staticToolchain.targetPrefix}cc";
-          CC_x86_64_unknown_linux_musl = "${staticToolchain}/bin/${staticToolchain.targetPrefix}cc";
-          CXX_x86_64_unknown_linux_musl = "${staticToolchain}/bin/${staticToolchain.targetPrefix}c++";
+          "CARGO_TARGET_${lib.toUpper (builtins.replaceStrings [ "-" ] [ "_" ] rustTarget)}_LINKER" = "${staticToolchain}/bin/${staticToolchain.targetPrefix}cc";
+          "CC_${builtins.replaceStrings [ "-" ] [ "_" ] rustTarget}" = "${staticToolchain}/bin/${staticToolchain.targetPrefix}cc";
+          "CXX_${builtins.replaceStrings [ "-" ] [ "_" ] rustTarget}" = "${staticToolchain}/bin/${staticToolchain.targetPrefix}c++";
         };
       in
       {
@@ -70,16 +72,18 @@
         };
 
         devShells.default = pkgs.mkShell {
-          packages = [
-            rustToolchain
+          packages = with pkgs; [
+            rustToolchain cargo-audit cargo-edit actionlint skopeo
+            cmake perl pkg-config clang git
           ];
+          LIBCLANG_PATH = "${pkgs.libclang.lib}/lib";
         };
 
         packages.default = redlib;
         packages.docker = pkgs.dockerTools.buildImage {
-          name = "quay.io/redlib/redlib";
+          name = "tagliasteel/redlib";
           tag = "latest";
-          created = "now";
+          created = "1970-01-01T00:00:01Z";
           copyToRoot = with pkgs.dockerTools; [
             caCertificates
             fakeNss
@@ -87,6 +91,7 @@
             pkgs.wget
           ];
           config = {
+            User = "10001:10001";
             Env = [
               "PATH=${redlib}/bin:${pkgs.wget}/bin:${pkgs.busybox}/bin:${pkgs.busybox}/sbin"
             ];
@@ -105,7 +110,7 @@
             Labels = {
               "org.opencontainers.image.title" = "Redlib";
               "org.opencontainers.image.description" = "Private front-end for Reddit";
-              "org.opencontainers.image.source" = "https://github.com/taglia/redlib/tree/redlib-0.36.0-dockerhub-source";
+              "org.opencontainers.image.source" = "https://github.com/taglia/redlib";
               "org.opencontainers.image.url" = "https://github.com/redlib-org/redlib";
               "org.opencontainers.image.version" = cargoToml.package.version;
               "org.opencontainers.image.licenses" = "AGPL-3.0-only";

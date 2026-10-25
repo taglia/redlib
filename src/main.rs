@@ -429,7 +429,7 @@ pub async fn proxy_commit_info() -> Result<Response<Body>, String> {
 	)
 }
 
-#[cached(time = 600)]
+#[cached(ttl_secs = 600)]
 async fn fetch_commit_info() -> String {
 	let url = "https://github.com/redlib-org/redlib/commits/main.atom";
 
@@ -446,7 +446,7 @@ pub async fn proxy_instances() -> Result<Response<Body>, String> {
 	)
 }
 
-#[cached(time = 600)]
+#[cached(ttl_secs = 600)]
 async fn fetch_instances() -> String {
 	let url = "https://raw.githubusercontent.com/redlib-org/redlib-instances/refs/heads/main/instances.json";
 

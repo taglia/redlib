@@ -1,0 +1,22 @@
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    ignore:
+      # Exported preference format requires a separately reviewed migration.
+      - dependency-name: bincode
+        update-types: [version-update:semver-major]
+      # Hyper 1.x requires a server API migration, not a lockfile bump.
+      - dependency-name: hyper
+        update-types: [version-update:semver-major]
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

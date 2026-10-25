@@ -1,8 +1,10 @@
 {
     "name": "Rust",
-    "image": "mcr.microsoft.com/devcontainers/rust:dev-trixie",
+    "image": "mcr.microsoft.com/devcontainers/rust:dev-trixie@sha256:ce13f346f47bff5f215bb35615472a56641fb0dfdf896423d0bc87a06452ff9c",
     "features": {
-        "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+        "ghcr.io/devcontainers/features/docker-in-docker:4": {
+            "moby": false
+        }
     },
     "portsAttributes": {
         "8080": {
@@ -10,6 +12,6 @@
             "onAutoForward": "notify"
         }
     },
-    "postCreateCommand": "sudo apt-get update && sudo apt-get install -y git build-essential cmake libclang-dev",
-    "postStartCommand": "cargo build"
+    "postCreateCommand": "sudo apt-get update && sudo apt-get install -y git build-essential cmake libclang-dev perl pkg-config && rustup default 1.99.1",
+    "postStartCommand": "cargo build --locked"
 }

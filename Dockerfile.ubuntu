@@ -1,6 +1,6 @@
 # supported versions here: https://hub.docker.com/_/rust
-ARG RUST_BUILDER_VERSION=slim-bookworm
-ARG UBUNTU_RELEASE_VERSION=noble
+ARG RUST_BUILDER_VERSION=1.99.1-trixie@sha256:931c2c0531a8b143e044f0f3914dfe802f15bb3d1955f0b657e9359327ac2ffc
+ARG UBUNTU_RELEASE_VERSION=26.04@sha256:c098726dd9b9733f3e885f8de0ef375206a311b0a317eadc40d347b1115fb944
 
 ########################
 ## builder image
@@ -8,7 +8,7 @@ ARG UBUNTU_RELEASE_VERSION=noble
 FROM rust:${RUST_BUILDER_VERSION} AS builder
 
 RUN apt-get update \
-    && apt-get -y install git build-essential cmake libclang-dev \
+    && apt-get -y install git build-essential cmake libclang-dev perl pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /redlib
@@ -21,13 +21,15 @@ RUN rm ./src/main.rs && rmdir ./src
 
 # copy the source and build the redlib binary
 COPY . ./
-RUN cargo build --release --locked --bin redlib
+RUN touch src/main.rs && cargo build --release --locked --bin redlib
 RUN echo "finished building redlib!"
 
 ########################
 ## release image
 ########################
 FROM ubuntu:${UBUNTU_RELEASE_VERSION} AS release
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates wget libgcc-s1 libstdc++6 \
+    && rm -rf /var/lib/apt/lists/*
 
 # Import redlib binary from builder
 COPY --from=builder /redlib/target/release/redlib /usr/local/bin/redlib
