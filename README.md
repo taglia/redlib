@@ -8,8 +8,10 @@
 >
 > Images are built from this fork's reviewed source for **linux/amd64** and
 > **linux/arm64**. The `Docker Hub` GitHub Actions workflow runs locked Rust checks,
-> native image smoke tests, and vulnerability scans before publishing `latest` and
-> `sha-<full commit>` tags. Prefer a digest or SHA tag for reproducible deployments.
+> native image smoke tests, and vulnerability scans before publishing `latest`,
+> `<major>.<minor>.<patch>` (from `Cargo.toml`), and `sha-<full commit>` tags.
+> Readable version tags track this fork's latest verified build of that version;
+> use a digest for immutable deployments. See [image maintenance](IMAGE-MAINTENANCE.md).
 >
 > Docker Hub's version-free description is maintained in [DOCKERHUB.md](DOCKERHUB.md).
 > The `Docker Hub description` workflow synchronizes it after publication, on changes

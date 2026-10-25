@@ -23,6 +23,7 @@ The image runs as a nonroot user and includes a shell-free healthcheck. Configur
 ## Tags and corresponding source
 
 - `latest`: the most recently published multi-platform build; this tag changes over time.
+- `<major>.<minor>.<patch>`: a readable version from the source's `Cargo.toml`. It tracks this fork's latest verified build of that version and may move when the fork receives fixes. It is not an official upstream release tag.
 - `sha-<full commit>`: a build identified by its source commit.
 
 Prefer an image digest for an immutable deployment. The image label `org.opencontainers.image.revision` identifies its exact source commit:

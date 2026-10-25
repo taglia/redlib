@@ -1,0 +1,48 @@
+name: Docker Hub version tag
+
+# Recovery/backfill path: promote an existing image, never rebuild or bypass scans.
+on:
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: Full source SHA of an already-published successful Docker Hub build
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: dockerhub-version-tag
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    if: github.repository == 'taglia/redlib' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      REVISION: ${{ inputs.revision }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Require successful main-branch CI and read its exact package version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$REVISION" =~ ^[0-9a-f]{40}$ ]]
+          gh api --method GET repos/taglia/redlib/actions/workflows/main-docker.yml/runs \
+            -f head_sha="$REVISION" -f branch=main -f status=success \
+            --jq '.workflow_runs | any(.head_repository.full_name == "taglia/redlib" and (.event == "push" or .event == "workflow_dispatch"))' | grep -qx true
+          gh api "repos/taglia/redlib/contents/Cargo.toml?ref=${REVISION}" \
+            --jq '.content' | base64 --decode > "$RUNNER_TEMP/source-Cargo.toml"
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Tag and verify the existing multi-platform image
+        run: bash scripts/tag-image-version.sh "$REVISION" "$RUNNER_TEMP/source-Cargo.toml"

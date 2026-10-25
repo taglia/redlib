@@ -172,6 +172,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: digests
@@ -200,6 +203,10 @@ jobs:
           docker buildx imagetools inspect --raw "${IMAGE}:sha-${REVISION}" | \
             jq -e '[.manifests[].platform | .os + "/" + .architecture] | sort == ["linux/amd64", "linux/arm64"]'
           docker buildx imagetools create -t "${IMAGE}:latest" "${IMAGE}:sha-${REVISION}"
+      - name: Publish readable version from Cargo.toml
+        env:
+          REVISION: ${{ github.sha }}
+        run: bash scripts/tag-image-version.sh "$REVISION"
 
   description:
     needs: manifest
