@@ -19,7 +19,9 @@ services:
     healthcheck:
       test: ["CMD", "/usr/local/bin/redlib-healthcheck"]
       interval: 5m
-      timeout: 3s
+      timeout: 7s
+      start_period: 120s
+      retries: 3
 
 networks:
   redlib:

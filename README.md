@@ -360,6 +360,58 @@ Use `cargo nextest run --locked --test-threads 1` for live Reddit integration te
 with per-test isolation. Reddit may still block comment requests from some IPs;
 see the security review's runtime limitations.
 
+## Container healthchecks
+
+The image includes a shell-free healthcheck, inherited even when Compose has no
+`healthcheck:` stanza. It requests `/settings` locally and requires HTTP 200; it
+checks Redlib's HTTP responsiveness, **not Reddit availability**. Monitor feeds
+separately if you also need end-to-end availability checks.
+
+| Environment variable | Default | Purpose |
+| --- | --- | --- |
+| `REDLIB_HEALTHCHECK_HOST` | `127.0.0.1` | Numeric IPv4/IPv6 address; use `::1` for an IPv6-only listener. No DNS lookup is performed. |
+| `REDLIB_HEALTHCHECK_PORT` | `PORT`, otherwise `8080` | Internal listening port (1–65535), not the published host port. |
+| `REDLIB_HEALTHCHECK_TIMEOUT` | `5` | Overall probe deadline in whole seconds (1–60). |
+
+An explicit healthcheck port overrides `PORT`. Command-line `--port`/`--address`
+options are not automatically discovered: configure matching healthcheck variables
+when overriding the listener that way. These variables change only the probe, not
+the server's listener.
+
+Docker's default probe timeout is 7 seconds, with a 120-second startup grace period
+and three consecutive failures before `unhealthy`. If increasing the helper's
+internal deadline, also increase Docker/Compose's outer timeout above it:
+
+```yaml
+services:
+  redlib:
+    environment:
+      PORT: "9090"
+      REDLIB_HEALTHCHECK_TIMEOUT: "10"
+    ports:
+      - "127.0.0.1:8080:9090"
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/redlib-healthcheck"]
+      interval: 30s
+      timeout: 12s
+      start_period: 120s
+      retries: 3
+```
+
+Failures report the target and cause (connection error, HTTP status, or timeout)
+in Docker's health log. Successful checks are quiet. Diagnose on the Docker host:
+
+```sh
+docker inspect redlib --format '{{json .State.Health}}'
+docker exec redlib /usr/local/bin/redlib-healthcheck
+echo "Healthcheck exit code: $?"
+```
+
+Recreate the container after pulling an updated image to use the new helper and
+image healthcheck settings. Existing Compose overrides still take precedence;
+update any old 3-second timeout. `restart: always` alone does not restart a running
+container solely because it is unhealthy.
+
 ## Replit/Heroku
 
 > [!WARNING]

@@ -105,7 +105,9 @@
                 "${redlib}/bin/redlib-healthcheck"
               ];
               Interval = 60000000000;
-              Timeout = 3000000000;
+              Timeout = 7000000000;
+              StartPeriod = 120000000000;
+              Retries = 3;
             };
             Labels = {
               "org.opencontainers.image.title" = "Redlib";

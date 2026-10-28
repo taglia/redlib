@@ -23,5 +23,5 @@ LABEL org.opencontainers.image.title="Redlib" \
       org.opencontainers.image.licenses="AGPL-3.0-only"
 USER 10001:10001
 EXPOSE 8080
-HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 CMD ["/usr/local/bin/redlib-healthcheck"]
+HEALTHCHECK --interval=30s --timeout=7s --start-period=120s --retries=3 CMD ["/usr/local/bin/redlib-healthcheck"]
 ENTRYPOINT ["/usr/local/bin/redlib"]
