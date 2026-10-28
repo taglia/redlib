@@ -64,6 +64,10 @@ fake_user_agent = "0.2.3"
 wreq = { version = "6.0.0-rc.31", features = ["brotli", "gzip", "deflate", "zstd", "json", "stream", "socks"] }
 wreq-util = { version = "3.0.0-rc.14" }
 
+# Temporary minimal dependency fix; provenance/removal instructions in vendor/README.md.
+[patch.crates-io]
+wreq-util = { path = "vendor/wreq-util" }
+
 [dev-dependencies]
 lipsum = "0.9.1"
 sealed_test = "1.1.0"

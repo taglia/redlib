@@ -15,6 +15,7 @@ WORKDIR /redlib
 
 # download (most) dependencies in their own layer
 COPY Cargo.lock Cargo.toml ./
+COPY vendor ./vendor
 RUN mkdir src && echo "fn main() { panic!(\"why am i running?\") }" > src/main.rs
 RUN cargo build --release --locked --bin redlib
 RUN rm ./src/main.rs && rmdir ./src

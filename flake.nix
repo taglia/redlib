@@ -45,6 +45,7 @@
           filter = path: type:
             (lib.hasInfix "/templates/" path) ||
             (lib.hasInfix "/static/" path) ||
+            (lib.hasInfix "/vendor/" path) ||
             (craneLib.filterCargoSources path type);
         };
 

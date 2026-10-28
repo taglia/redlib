@@ -24,6 +24,16 @@ changes paths, not URL authorities.
   separate compatibility project, not an automatic dependency bump.
 - Replace the retired YAML serializer and its unmaintained `unsafe-libyaml`
   dependency with the serialization-only feature of `serde-saphyr`.
+- The healthcheck publication attempt was blocked by newly issued zstd advisories:
+  [RUSTSEC-2026-0391](https://rustsec.org/advisories/RUSTSEC-2026-0391),
+  [RUSTSEC-2026-0398](https://rustsec.org/advisories/RUSTSEC-2026-0398), and
+  [RUSTSEC-2026-0403](https://rustsec.org/advisories/RUSTSEC-2026-0403).
+  `wreq-util` still requires the vulnerable zstd 0.13.x line, including in its
+  newer published release. Vendor the existing 3.0.0-rc.14 release with only its
+  zstd requirement updated to 0.14.3, removing zstd-safe 7.x and the related
+  unsoundness warnings. HTTP decompression already used the patched versions.
+  See [patch provenance and removal instructions](vendor/README.md). No advisory
+  exceptions are added; no claim is made that every affected API was reachable.
 - Retain `bincode` 1.3.3 for existing exported settings compatibility.
   [RUSTSEC-2025-0141](https://rustsec.org/advisories/RUSTSEC-2025-0141)
   is an unmaintained warning, not a reported vulnerability; version 3.0 is not a
@@ -46,7 +56,8 @@ changes paths, not URL authorities.
 - Disable upstream Quay/crates.io/release jobs in this fork. Docker Hub publishing
   requires successful Rust checks and both architectures' smoke tests and scans.
   Publish the exact scanned image artifacts, not a second potentially different
-  build. Public tags are `latest`, `sha-<full commit>`, and per-architecture SHA tags.
+  build. Public tags are `latest`, the readable Cargo package version,
+  `sha-<full commit>`, and per-architecture SHA tags.
 - Update bundled hls.js to 1.7.3 from its npm tarball, verifying npm's SHA-512
   integrity value before extracting the asset. Registry integrity protects against
   corruption, not a compromised maintainer account.
@@ -55,7 +66,8 @@ changes paths, not URL authorities.
 
 - Formatting, Clippy (`--all-targets -D warnings`), and actionlint pass.
 - Deterministic library suite: 46 passed; 20 live-API tests filtered out.
-  The shell-free healthcheck has an additional isolated loopback unit test.
+  The configurable shell-free healthcheck has seven isolated tests covering
+  status parsing, configuration, connection errors, and overall deadlines.
 - Live nextest run before adding the helper: 55 passed, 1 upstream-disabled test
   skipped. A single-process cargo test run exposed the upstream rate-limit test's
   shared-state assumption; that test passes in isolation and under nextest.

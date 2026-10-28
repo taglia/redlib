@@ -4,6 +4,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     cmake perl pkg-config libclang-dev git && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY Cargo.toml Cargo.lock build.rs ./
+COPY vendor ./vendor
 COPY src ./src
 COPY templates ./templates
 COPY static ./static
